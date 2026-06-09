@@ -9,6 +9,7 @@ function showToast(message, type = 'success') {
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
     
+    
     // SVG icons based on type
     let icon = '';
     if (type === 'success') {
