@@ -9,6 +9,7 @@ if ($is_logged_in) {
 
 $error_msg = null;
 $email = '';
+\\
 
 // Handle Form Submission
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
