@@ -9,7 +9,7 @@ function showToast(message, type = 'success') {
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
     
-    
+
     // SVG icons based on type
     let icon = '';
     if (type === 'success') {
@@ -208,6 +208,8 @@ async function handleCheckout(event) {
         product_id: parseInt(item.product_id),
         quantity: parseInt(item.quantity)
     }));
+
+    //mmm
 
     const orderData = {
         user_id: formData.get('user_id') ? parseInt(formData.get('user_id')) : null,
