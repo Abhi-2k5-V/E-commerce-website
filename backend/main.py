@@ -114,3 +114,124 @@ def seed_products(db):
             }
         ]
         db.products.insert_many(initial_products)
+@app.on_event("startup")
+def on_startup():
+    db = next(get_db())
+    seed_products(db)
+
+@app.post("/api/register")
+def register(user: UserRegister, db = Depends(get_db)):
+    # Check if user already exists
+    db_user = db.users.find_one({"email": user.email})
+    if db_user:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    # Check if this email should automatically be an admin
+    is_admin = False
+    if user.email.lower() == "admin@cusat.ac.in":
+        is_admin = True
+        
+    new_user_id = get_next_sequence_value("user_id")
+    new_user = {
+        "_id": new_user_id,
+        "name": user.name,
+        "email": user.email,
+        "password_hash": hash_password(user.password),
+        "is_admin": is_admin
+    }
+    
+    try:
+        db.users.insert_one(new_user)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="Email already registered")
+        
+    return {
+        "id": new_user_id,
+        "name": user.name,
+        "email": user.email,
+        "is_admin": is_admin
+    }
+
+@app.post("/api/login")
+def login(user: UserLogin, db = Depends(get_db)):
+    db_user = db.users.find_one({"email": user.email})
+    if not db_user or db_user["password_hash"] != hash_password(user.password):
+        raise HTTPException(status_code=400, detail="Invalid email or password")
+    
+    return {
+        "id": db_user["_id"],
+        "name": db_user["name"],
+        "email": db_user["email"],
+        "is_admin": db_user["is_admin"]
+    }
+
+@app.get("/api/products")
+def get_products(category: Optional[str] = None, db = Depends(get_db)):
+    query = {}
+    if category and category != "All":
+        query["category"] = category
+        
+    products = list(db.products.find(query))
+    # Map _id to id to keep frontend compatibility
+    for p in products:
+        p["id"] = p.pop("_id")
+    return products
+
+@app.post("/api/products")
+def create_product(product: ProductCreate, x_admin_token: Optional[str] = Header(None), db = Depends(get_db)):
+    if x_admin_token != "admin_secret_token_cusat":
+         raise HTTPException(status_code=403, detail="Not authorized as admin")
+         
+    new_id = get_next_sequence_value("product_id")
+    new_product = {
+        "_id": new_id,
+        "name": product.name,
+        "price": product.price,
+        "category": product.category,
+        "description": product.description,
+        "image_url": product.image_url or "https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&q=80&w=400"
+    }
+    
+    db.products.insert_one(new_product)
+    
+    # Map _id to id for response
+    new_product["id"] = new_product.pop("_id")
+    return new_product
+
+@app.delete("/api/products/{product_id}")
+def delete_product(product_id: int, x_admin_token: Optional[str] = Header(None), db = Depends(get_db)):
+    if x_admin_token != "admin_secret_token_cusat":
+         raise HTTPException(status_code=403, detail="Not authorized as admin")
+         
+    result = db.products.delete_one({"_id": product_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Product not found")
+        
+    return {"message": "Product deleted successfully"}
+
+@app.post("/api/orders")
+def create_order(order_data: OrderCreate, db = Depends(get_db)):
+    if not order_data.items:
+        raise HTTPException(status_code=400, detail="Cart is empty")
+        
+    total_amount = 0.0
+    order_items_to_create = []
+    
+    # Validate items and calculate total amount
+    for item in order_data.items:
+        product = db.products.find_one({"_id": item.product_id})
+        if not product:
+            raise HTTPException(status_code=400, detail=f"Product with ID {item.product_id} not found")
+        
+        item_total = product["price"] * item.quantity
+        total_amount += item_total
+        
+        order_items_to_create.append({
+            "product_id": product["_id"],
+            "product_name": product["name"],
+            "quantity": item.quantity,
+            "price": product["price"]
+        })
+        
+    new_order_id = get_next_sequence_value("order_id")
+    created_at = datetime.datetime.utcnow()
